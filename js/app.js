@@ -14,8 +14,8 @@
 
 const CONFIG = {
   // Target GPS coordinates (the exact spot in the park)
-  targetLat: 59.836680737031045,
-  targetLon: 13.540574156989837,
+  targetLat: 59.836682053092346,
+  targetLon: 13.54035725371799,
 
   // Display name for the location (shown in "out of range" message)
   locationName: "Test Model Location",
