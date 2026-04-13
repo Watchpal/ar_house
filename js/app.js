@@ -127,7 +127,7 @@ function initGPS() {
 
 // ── Dev/testing bypass ────────────────────────────────────────
 // Uncomment the line below to SKIP location check during development:
-// startBtn.disabled = false; dot.className='dot in-range'; statusText.textContent='Dev mode — range bypassed';
+ startBtn.disabled = false; dot.className='dot in-range'; statusText.textContent='Dev mode — range bypassed';
 
 // ── Start AR ─────────────────────────────────────────────────
 startBtn.addEventListener("click", () => {
