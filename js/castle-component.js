@@ -115,7 +115,7 @@ AFRAME.registerComponent("castle-model", {
     // ── REAL MODEL — uncomment and edit path when you have a .glb file ──────
 
     const model = document.createElement("a-entity");
-    model.setAttribute("gltf-model", "models/House.glb");
+    model.setAttribute("gltf-model", "ar_house/models/House.glb");
     model.setAttribute("position", "0 0 0");
     model.setAttribute("rotation", "0 0 0");
     el.appendChild(model);
