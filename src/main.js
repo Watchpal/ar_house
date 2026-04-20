@@ -45,9 +45,3 @@ renderer.setAnimationLoop(animate);
 function animate() {
     renderer.render(scene, camera);
 }
-
-renderer.setAnimationLoop(animate);
-
-function animate() {
-  renderer.render(scene, camera);
-}
