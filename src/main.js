@@ -2,94 +2,206 @@ import "./style.css";
 import javascriptLogo from "./assets/javascript.svg";
 import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
-import * as THREE from 'three';
-import * as LocAR from 'locar';
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import {
+  LocationBased,
+  WebcamRenderer,
+  DeviceOrientationControls,
+} from "locar";
 
-const camera = new THREE.PerspectiveCamera(80, window.innerWidth/window.innerHeight, 0.001, 1000);
-const renderer = new THREE.WebGLRenderer();
-renderer.setSize(window.innerWidth, window.innerHeight);
+// ============================================================
+//  CONFIGURATION — edit these values before deploying
+// ============================================================
+
+const HOUSE_MODEL_PATH = "/House.glb"; // path to your .glb file in /public
+
+const HOUSE_GPS = {
+  latitude: 59.8366911802191, // <-- target GPS latitude
+  longitude: 13.540368226155081, // <-- target GPS longitude
+};
+
+const HOUSE_SCALE = 10; // scale of the model (metres, roughly)
+const HOUSE_ALTITUDE = 0; // y-offset in metres (0 = ground level)
+
+// Minimum metres the user must move before GPS position is refreshed.
+// Reduces "jumping" caused by sensor noise.
+const GPS_MIN_DISTANCE = 3;
+
+// ============================================================
+//  SCENE SETUP
+// ============================================================
+
 const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(
+  60,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  10000,
+);
 
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
-window.addEventListener("resize", e => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+// ============================================================
+//  LIGHTING
+// ============================================================
+
+// Ambient light so the model isn't pitch-black on its dark side
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+scene.add(ambientLight);
+
+// Directional light simulating sunlight
+const sunLight = new THREE.DirectionalLight(0xfff4e0, 2.0);
+sunLight.position.set(50, 100, 50);
+sunLight.castShadow = true;
+scene.add(sunLight);
+
+// ============================================================
+//  LOCAR — webcam background + GPS tracking
+// ============================================================
+
+const webcamRenderer = new WebcamRenderer(renderer);
+
+const locationBased = new LocationBased(scene, camera, {
+  gpsMinDistance: GPS_MIN_DISTANCE,
 });
 
-const locar = new LocAR.LocationBased(scene, camera);
+const deviceControls = new DeviceOrientationControls(camera);
 
-const deviceOrientationControls = new LocAR.DeviceOrientationControls(camera);
+// ============================================================
+//  LOAD 3D HOUSE MODEL
+// ============================================================
 
-deviceOrientationControls.on("deviceorientationgranted", ev => {
-    ev.target.connect();
+let houseObject = null;
+
+const loader = new GLTFLoader();
+
+loader.load(
+  HOUSE_MODEL_PATH,
+
+  // onLoad
+  (gltf) => {
+    houseObject = gltf.scene;
+
+    // Uniform scale
+    houseObject.scale.setScalar(HOUSE_SCALE);
+
+    // Lift model off ground if needed
+    houseObject.position.y = HOUSE_ALTITUDE;
+
+    // Enable shadows on every mesh inside the model
+    houseObject.traverse((node) => {
+      if (node.isMesh) {
+        node.castShadow = true;
+        node.receiveShadow = true;
+      }
+    });
+
+    // Pin the model to the target GPS coordinates
+    locationBased.add(houseObject, HOUSE_GPS.longitude, HOUSE_GPS.latitude);
+
+    console.log("[LocAR] House model placed at", HOUSE_GPS);
+    hideLoadingOverlay();
+  },
+
+  // onProgress
+  (xhr) => {
+    const pct = Math.round((xhr.loaded / xhr.total) * 100);
+    updateLoadingProgress(pct);
+    console.log(`[LocAR] Model loading: ${pct}%`);
+  },
+
+  // onError
+  (error) => {
+    console.error("[LocAR] Failed to load model:", error);
+    showError(
+      "Could not load the house model. Check that house.glb is in /public.",
+    );
+  },
+);
+
+// ============================================================
+//  GPS — start tracking the user's position
+// ============================================================
+
+locationBased.startGPS();
+
+locationBased.on("gpsupdate", (pos) => {
+  const { latitude, longitude } = pos.coords;
+  console.log(
+    `[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`,
+  );
+  updateDebugInfo(latitude, longitude);
 });
 
-deviceOrientationControls.on("deviceorientationerror", error => {
-    alert(`Device orientation error: code ${error.code} message ${error.message}`);
+locationBased.on("gpserror", (err) => {
+  console.error("[LocAR] GPS error:", err.message);
+  showError("GPS error: " + err.message);
 });
 
-deviceOrientationControls.init();
-
-const cam = new LocAR.Webcam({
-    video: {
-        facingMode: "environment"
-    }
-});
-
-cam.on("webcamstarted", ev => {
-    scene.background = ev.texture;
-});
-
-cam.on("webcamerror", error => {
-    alert(`Webcam error: code ${error.code} message ${error.message}`);
-});
-
-let firstPosition = true;
-
-const indexedObjects = { };
-
-const cube = new THREE.BoxGeometry(20, 20, 20);
-
-const clickHandler = new LocAR.ClickHandler(renderer);
-
-locar.on("gpserror", error => {
-    alert(`GPS error: ${error.code}`);
-});
-
-locar.on("gpsupdate", async(ev, distMoved) => {
-    
-    if(firstPosition || distMoved > 100) {
-
-        const response = await fetch(`https://hikar.org/webapp/map?bbox=${ev.position.coords.longitude-0.02},${ev.position.coords.latitude-0.02},${ev.position.coords.longitude+0.02},${ev.position.coords.latitude+0.02}&layers=poi&outProj=4326`);
-        const pois = await response.json();
-
-        pois.features.forEach ( poi => {
-            if(!indexedObjects[poi.properties.osm_id]) {
-                const mesh = new THREE.Mesh(
-                    cube,
-                    new THREE.MeshBasicMaterial({color: 0xff0000})
-                );                
-
-                locar.add(
-                    mesh, 
-                    poi.geometry.coordinates[0], 
-                    poi.geometry.coordinates[1]
-                );
-                indexedObjects[poi.properties.osm_id] = mesh;
-            }
-        });
-        firstPosition = false;
-    }
-
-});
-locar.startGps();
-
-renderer.setAnimationLoop(animate);
+// ============================================================
+//  RENDER LOOP
+// ============================================================
 
 function animate() {
-    deviceOrientationControls.update();
-    renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+
+  // Update device orientation (compass + tilt)
+  deviceControls.update();
+
+  // Render the webcam feed as background
+  webcamRenderer.update();
+
+  renderer.render(scene, camera);
 }
+
+animate();
+
+// ============================================================
+//  RESIZE HANDLING
+// ============================================================
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================================
+//  UI HELPERS
+// ============================================================
+
+function hideLoadingOverlay() {
+  const overlay = document.getElementById("loading-overlay");
+  if (overlay) {
+    overlay.style.opacity = "0";
+    setTimeout(() => overlay.remove(), 600);
+  }
+}
+
+function updateLoadingProgress(pct) {
+  const bar = document.getElementById("loading-bar-fill");
+  if (bar) bar.style.width = pct + "%";
+
+  const label = document.getElementById("loading-label");
+  if (label) label.textContent = `Loading model… ${pct}%`;
+}
+
+function updateDebugInfo(lat, lon) {
+  const el = document.getElementById("debug-gps");
+  if (el) el.textContent = `GPS  ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+}
+
+function showError(msg) {
+  const el = document.getElementById("error-banner");
+  if (el) {
+    el.textContent = msg;
+    el.style.display = "block";
+  }
+}
+
 
