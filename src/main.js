@@ -5,12 +5,12 @@ import heroImg from "./assets/hero.png";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as LocAR from "locar";
+import HOUSE_MODEL_PATH from "./assets/House.glb";
 
 // ============================================================
 //  CONFIGURATION — edit these values before deploying
 // ============================================================
 
-const HOUSE_MODEL_PATH = "ar_house/House.glb"; // path to your .glb file in /public
 
 const HOUSE_GPS = {
   latitude: 59.8366911802191, // <-- target GPS latitude
@@ -120,7 +120,7 @@ loader.load(
     });
 
     // Pin the model to the target GPS coordinates
-    locationBased.add(houseObject, HOUSE_GPS.longitude, HOUSE_GPS.latitude);
+    locar.add(houseObject, HOUSE_GPS.longitude, HOUSE_GPS.latitude);
 
     console.log("[LocAR] House model placed at", HOUSE_GPS);
     hideLoadingOverlay();
