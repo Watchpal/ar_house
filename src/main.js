@@ -89,57 +89,29 @@ deviceOrientationControls.on("deviceorientationerror", error => {
 
 deviceOrientationControls.init();
 
+let modelLoaded = false;
+
+locar.on('gpsupdate', (pos) => {
+    const { latitude, longitude } = pos.coords;
+    console.log(`[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`);
+    updateDebugInfo(latitude, longitude);
+
+    // Load and place the model only once, after GPS is ready
+    if (!modelLoaded) {
+        modelLoaded = true;
+        loadHouseModel();
+    }
+});
+
+locar.on('gpserror', (err) => {
+    console.error('[LocAR] GPS error:', err.message);
+    showError('GPS error: ' + err.message);
+});
+
 // ============================================================
 //  LOAD 3D HOUSE MODEL
 // ============================================================
 
-let houseObject = null;
-
-const loader = new GLTFLoader();
-
-loader.load(
-  HOUSE_MODEL_PATH,
-
-  // onLoad
-  (gltf) => {
-    houseObject = gltf.scene;
-
-    // Uniform scale
-    houseObject.scale.setScalar(HOUSE_SCALE);
-
-    // Lift model off ground if needed
-    houseObject.position.y = HOUSE_ALTITUDE;
-
-    // Enable shadows on every mesh inside the model
-    houseObject.traverse((node) => {
-      if (node.isMesh) {
-        node.castShadow = true;
-        node.receiveShadow = true;
-      }
-    });
-
-    // Pin the model to the target GPS coordinates
-    locar.add(houseObject, HOUSE_GPS.longitude, HOUSE_GPS.latitude);
-
-    console.log("[LocAR] House model placed at", HOUSE_GPS);
-    hideLoadingOverlay();
-  },
-
-  // onProgress
-  (xhr) => {
-    const pct = Math.round((xhr.loaded / xhr.total) * 100);
-    updateLoadingProgress(pct);
-    console.log(`[LocAR] Model loading: ${pct}%`);
-  },
-
-  // onError
-  (error) => {
-    console.error("[LocAR] Failed to load model:", error);
-    showError(
-      "Could not load the house model. Check that house.glb is in /public.",
-    );
-  },
-);
 
 // ============================================================
 //  GPS — start tracking the user's position
@@ -147,7 +119,36 @@ loader.load(
 
 locar.startGps();
 
+function loadHouseModel() {
+    const loader = new GLTFLoader();
 
+    loader.load(
+        HOUSE_MODEL_PATH,
+        (gltf) => {
+            const houseObject = gltf.scene;
+            houseObject.scale.setScalar(HOUSE_SCALE);
+            houseObject.position.y = HOUSE_ALTITUDE;
+
+            houseObject.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow    = true;
+                    node.receiveShadow = true;
+                }
+            });
+
+            locar.add(houseObject, HOUSE_GPS.longitude, HOUSE_GPS.latitude);
+            console.log('[LocAR] House model placed at', HOUSE_GPS);
+        },
+        (xhr) => {
+            const pct = Math.round((xhr.loaded / xhr.total) * 100);
+            updateLoadingProgress(pct);
+        },
+        (error) => {
+            console.error('[LocAR] Failed to load model:', error);
+            showError('Could not load the house model.');
+        }
+    );
+}
 
 // ============================================================
 //  RENDER LOOP
