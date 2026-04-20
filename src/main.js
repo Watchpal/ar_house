@@ -4,11 +4,7 @@ import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import {
-  LocationBased,
-  WebcamRenderer,
-  DeviceOrientationControls,
-} from "locar";
+import * as LocAR from "locar";
 
 // ============================================================
 //  CONFIGURATION — edit these values before deploying
@@ -64,13 +60,35 @@ scene.add(sunLight);
 //  LOCAR — webcam background + GPS tracking
 // ============================================================
 
-const webcamRenderer = new WebcamRenderer(renderer);
 
-const locationBased = new LocationBased(scene, camera, {
-  gpsMinDistance: GPS_MIN_DISTANCE,
+const locar = new LocAR.LocationBased(scene, camera);
+
+const cam = new LocAR.Webcam({
+  video: {
+    facingMode: "environment",
+  },
 });
 
-const deviceControls = new DeviceOrientationControls(camera);
+cam.on("webcamstarted", (ev) => {
+  scene.background = ev.texture;
+});
+
+cam.on("webcamerror", (error) => {
+  alert(`Webcam error: code ${error.code} message ${error.message}`);
+});
+
+// Create the device orientation tracker
+const deviceOrientationControls = new LocAR.DeviceOrientationControls(camera);
+
+deviceOrientationControls.on("deviceorientationgranted", ev => {
+    ev.target.connect();
+});
+
+deviceOrientationControls.on("deviceorientationerror", error => {
+    alert(`Device orientation error: code ${error.code} message ${error.message}`);
+});
+
+deviceOrientationControls.init();
 
 // ============================================================
 //  LOAD 3D HOUSE MODEL
@@ -128,38 +146,21 @@ loader.load(
 //  GPS — start tracking the user's position
 // ============================================================
 
-locationBased.startGPS();
+locar.startGps();
 
-locationBased.on("gpsupdate", (pos) => {
-  const { latitude, longitude } = pos.coords;
-  console.log(
-    `[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`,
-  );
-  updateDebugInfo(latitude, longitude);
-});
 
-locationBased.on("gpserror", (err) => {
-  console.error("[LocAR] GPS error:", err.message);
-  showError("GPS error: " + err.message);
-});
 
 // ============================================================
 //  RENDER LOOP
 // ============================================================
 
+renderer.setAnimationLoop(animate);
+
 function animate() {
-  requestAnimationFrame(animate);
-
-  // Update device orientation (compass + tilt)
-  deviceControls.update();
-
-  // Render the webcam feed as background
-  webcamRenderer.update();
-
-  renderer.render(scene, camera);
+    // Update the scene using the latest sensor readings
+    deviceOrientationControls.update();
+    renderer.render(scene, camera);
 }
-
-animate();
 
 // ============================================================
 //  RESIZE HANDLING
