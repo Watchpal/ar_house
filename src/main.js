@@ -10,7 +10,7 @@ import * as LocAR from "locar";
 //  CONFIGURATION — edit these values before deploying
 // ============================================================
 
-const HOUSE_MODEL_PATH = "/House.glb"; // path to your .glb file in /public
+const HOUSE_MODEL_PATH = "ar_house/House.glb"; // path to your .glb file in /public
 
 const HOUSE_GPS = {
   latitude: 59.8366911802191, // <-- target GPS latitude
