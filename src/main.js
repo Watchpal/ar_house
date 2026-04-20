@@ -5,15 +5,12 @@ import heroImg from "./assets/hero.png";
 import * as THREE from 'three';
 import * as LocAR from 'locar';
 
-const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.001, 1000);
-
+const camera = new THREE.PerspectiveCamera(80, window.innerWidth/window.innerHeight, 0.001, 1000);
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
 const scene = new THREE.Scene();
 
-const locar = new LocAR.LocationBased(scene, camera);
+document.body.appendChild(renderer.domElement);
 
 window.addEventListener("resize", e => {
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -21,6 +18,19 @@ window.addEventListener("resize", e => {
     camera.updateProjectionMatrix();
 });
 
+const locar = new LocAR.LocationBased(scene, camera);
+
+const deviceOrientationControls = new LocAR.DeviceOrientationControls(camera);
+
+deviceOrientationControls.on("deviceorientationgranted", ev => {
+    ev.target.connect();
+});
+
+deviceOrientationControls.on("deviceorientationerror", error => {
+    alert(`Device orientation error: code ${error.code} message ${error.message}`);
+});
+
+deviceOrientationControls.init();
 
 const cam = new LocAR.Webcam({
     video: {
@@ -36,64 +46,44 @@ cam.on("webcamerror", error => {
     alert(`Webcam error: code ${error.code} message ${error.message}`);
 });
 
-let firstLocation = true;
+let firstPosition = true;
 
-const deviceOrientationControls = new LocAR.DeviceOrientationControls(camera);
+const indexedObjects = { };
 
-deviceOrientationControls.on("deviceorientationgranted", ev => {
-    ev.target.connect();
-});
+const cube = new THREE.BoxGeometry(20, 20, 20);
 
-deviceOrientationControls.on("deviceorientationerror", error => {
-    alert(`Device orientation error: code ${error.code} message ${error.message}`);
-});
-
-deviceOrientationControls.init();
+const clickHandler = new LocAR.ClickHandler(renderer);
 
 locar.on("gpserror", error => {
     alert(`GPS error: ${error.code}`);
 });
 
-locar.on("gpsupdate", ev => {
-    if(firstLocation) {
+locar.on("gpsupdate", async(ev, distMoved) => {
+    
+    if(firstPosition || distMoved > 100) {
 
-        const boxProps = [{
-            latDis: 0.0005,
-            lonDis: 0,
-            colour: 0xff0000
-        }, {
-            latDis: -0.0005,
-            lonDis: 0,
-            colour: 0xffff00
-        }, {
-            latDis: 0,
-            lonDis: -0.0005,
-            colour: 0x00ffff
-        }, {
-            latDis: 0,
-            lonDis: 0.0005,
-            colour: 0x00ff00
-        }];
+        const response = await fetch(`https://hikar.org/webapp/map?bbox=${ev.position.coords.longitude-0.02},${ev.position.coords.latitude-0.02},${ev.position.coords.longitude+0.02},${ev.position.coords.latitude+0.02}&layers=poi&outProj=4326`);
+        const pois = await response.json();
 
-        const geom = new THREE.BoxGeometry(10,10,10);
+        pois.features.forEach ( poi => {
+            if(!indexedObjects[poi.properties.osm_id]) {
+                const mesh = new THREE.Mesh(
+                    cube,
+                    new THREE.MeshBasicMaterial({color: 0xff0000})
+                );                
 
-        for(const boxProp of boxProps) {
-            const mesh = new THREE.Mesh(
-                geom, 
-                new THREE.MeshBasicMaterial({color: boxProp.colour})
-            );
-        
-            locar.add(
-                mesh, 
-                ev.position.coords.longitude + boxProp.lonDis, 
-                ev.position.coords.latitude + boxProp.latDis
-            );
-        }
-        
-        firstLocation = false;
+                locar.add(
+                    mesh, 
+                    poi.geometry.coordinates[0], 
+                    poi.geometry.coordinates[1]
+                );
+                indexedObjects[poi.properties.osm_id] = mesh;
+            }
+        });
+        firstPosition = false;
     }
-});
 
+});
 locar.startGps();
 
 renderer.setAnimationLoop(animate);
@@ -102,3 +92,4 @@ function animate() {
     deviceOrientationControls.update();
     renderer.render(scene, camera);
 }
+
