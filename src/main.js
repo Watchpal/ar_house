@@ -90,6 +90,29 @@ deviceOrientationControls.on("deviceorientationerror", error => {
 deviceOrientationControls.init();
 
 let modelLoaded = false;
+
+// Use native GPS to get a solid first fix before starting LocAR
+navigator.geolocation.getCurrentPosition(
+    (pos) => {
+        // We have a real position — now start LocAR tracking
+        locar.startGps();
+
+        // Load the model immediately since we know GPS is ready
+        if (!modelLoaded) {
+            modelLoaded = true;
+            loadHouseModel();
+        }
+    },
+    (err) => {
+        showError('GPS error: ' + err.message);
+        console.error('[GPS] Error getting initial position:', err);
+    },
+    {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+    }
+);
 /*
 locar.on('gpsupdate', (pos) => {
     const { latitude, longitude } = pos.coords;
@@ -104,23 +127,9 @@ locar.on('gpsupdate', (pos) => {
 });
 */
 locar.on('gpsupdate', (pos, distMoved) => {
-    // pos may be a GeolocationPosition or the coords directly — handle both
-    const coords = pos?.coords ?? pos;
-    const latitude  = coords?.latitude;
-    const longitude = coords?.longitude;
-
-    if (latitude == null || longitude == null) {
-        console.warn('[LocAR] gpsupdate fired but no coordinates yet');
-        return;
-    }
-
-    console.log(`[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`);
+    if (!pos || !pos.coords) return; // guard against null
+    const { latitude, longitude } = pos.coords;
     updateDebugInfo(latitude, longitude);
-
-    if (!modelLoaded) {
-        modelLoaded = true;
-        loadHouseModel();
-    }
   console.log('[LocAR] raw gpsupdate payload:', pos);
 });
 
