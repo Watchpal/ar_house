@@ -25,7 +25,6 @@ const box = new THREE.BoxGeometry(2,2,2);
 const cube = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
 
 const locar = new LocAR.LocationBased(scene, camera);
-
 const cam = new LocAR.Webcam({
     video: {
         facingMode: "environment"
@@ -40,13 +39,5 @@ cam.on("webcamerror", error => {
     alert(`Webcam error: code ${error.code} message ${error.message}`);
 });
 
-
 locar.startGps();
-locar.add(cube, -0.72, 51.0501);
-
-renderer.setAnimationLoop(animate);
-
-
-function animate() {
-    renderer.render(scene, camera);
-}
+locar.add(cube, 13.540565734604412, 59.836704661579994);
