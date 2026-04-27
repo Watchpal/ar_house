@@ -90,7 +90,7 @@ deviceOrientationControls.on("deviceorientationerror", error => {
 deviceOrientationControls.init();
 
 let modelLoaded = false;
-
+/*
 locar.on('gpsupdate', (pos) => {
     const { latitude, longitude } = pos.coords;
     console.log(`[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`);
@@ -101,6 +101,27 @@ locar.on('gpsupdate', (pos) => {
         modelLoaded = true;
         loadHouseModel();
     }
+});
+*/
+locar.on('gpsupdate', (pos, distMoved) => {
+    // pos may be a GeolocationPosition or the coords directly — handle both
+    const coords = pos?.coords ?? pos;
+    const latitude  = coords?.latitude;
+    const longitude = coords?.longitude;
+
+    if (latitude == null || longitude == null) {
+        console.warn('[LocAR] gpsupdate fired but no coordinates yet');
+        return;
+    }
+
+    console.log(`[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`);
+    updateDebugInfo(latitude, longitude);
+
+    if (!modelLoaded) {
+        modelLoaded = true;
+        loadHouseModel();
+    }
+  console.log('[LocAR] raw gpsupdate payload:', pos);
 });
 
 locar.on('gpserror', (err) => {
