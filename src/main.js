@@ -4,146 +4,47 @@ import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import {
-  LocationBased,
-  WebcamRenderer,
-  DeviceOrientationControls,
-} from "locar";
+import * as LocAR from "locar";
 
 // Replace with your target GPS coordinates
 const TARGET_LAT = 59.836704661579994;
 const TARGET_LON = 13.540565734604412;
 
 
-////////////////////////////////////////////////////////////////////////////////
-// SCENE
-////////////////////////////////////////////////////////////////////////////////
-
 const scene = new THREE.Scene();
-
-const camera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
-
-const renderer = new THREE.WebGLRenderer({
-  antialias: true,
-  alpha: true,
-});
-
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.001, 100);
+const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
-
 document.body.appendChild(renderer.domElement);
 
-////////////////////////////////////////////////////////////////////////////////
-// LIGHT
-////////////////////////////////////////////////////////////////////////////////
+window.addEventListener("resize", e => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;    
+    camera.updateProjectionMatrix();
+});
+const box = new THREE.BoxGeometry(2,2,2);
+const cube = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
 
-const light = new THREE.AmbientLight(0xffffff, 1);
-
-scene.add(light);
-
-////////////////////////////////////////////////////////////////////////////////
-// CUBE
-////////////////////////////////////////////////////////////////////////////////
-
-const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(2, 2, 2),
-  new THREE.MeshStandardMaterial({
-    color: 0x00ff00,
-  })
-);
-
-////////////////////////////////////////////////////////////////////////////////
-// START AR
-////////////////////////////////////////////////////////////////////////////////
-
-async function startAR() {
-  // Camera permission
-  await navigator.mediaDevices.getUserMedia({
-    video: true,
-  });
-
-  // iOS orientation permission
-  if (
-    typeof DeviceOrientationEvent !== "undefined" &&
-    typeof DeviceOrientationEvent.requestPermission === "function"
-  ) {
-    const permission = await DeviceOrientationEvent.requestPermission();
-
-    if (permission !== "granted") {
-      alert("Orientation permission denied");
-      return;
+const locar = new LocAR.LocationBased(scene, camera);
+const cam = new LocAR.Webcam({
+    video: {
+        facingMode: "environment"
     }
-  }
+});
 
-  // LOCAR
-  const locationBased = new LocationBased(scene, camera);
+cam.on("webcamstarted", ev => {
+    scene.background = ev.texture;
+});
 
-  // Webcam background
-  new WebcamRenderer(renderer);
+cam.on("webcamerror", error => {
+    alert(`Webcam error: code ${error.code} message ${error.message}`);
+});
 
-  // Device orientation
-  const controls = new DeviceOrientationControls(camera);
+locar.fakeGps(-0.72, 51.05);
+locar.add(cube, -0.72, 51.0501);
 
-  // Add cube to GPS location
-  locationBased.add(cube, TARGET_LON, TARGET_LAT);
+renderer.setAnimationLoop(animate);
 
-  cube.position.y = 1;
-
-  // Start GPS
-  locationBased.startGps();
-
-  // Animation loop
-  renderer.setAnimationLoop(() => {
-    controls.update();
-
-    cube.rotation.y += 0.01;
-
+function animate() {
     renderer.render(scene, camera);
-  });
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// BUTTON
-////////////////////////////////////////////////////////////////////////////////
-
-const button = document.createElement("button");
-
-button.innerText = "Start AR";
-
-button.style.position = "absolute";
-button.style.top = "20px";
-button.style.left = "20px";
-button.style.zIndex = "999";
-button.style.padding = "12px 20px";
-
-document.body.appendChild(button);
-
-button.addEventListener("click", async () => {
-  button.remove();
-
-  try {
-    await startAR();
-  } catch (err) {
-    console.error(err);
-
-    alert(err.message);
-  }
-});
-
-////////////////////////////////////////////////////////////////////////////////
-// RESIZE
-////////////////////////////////////////////////////////////////////////////////
-
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-
-  camera.updateProjectionMatrix();
-
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-
