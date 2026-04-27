@@ -4,14 +4,19 @@ import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import * as LocAR from "locar";
+import {
+  LocationBased,
+  WebcamRenderer,
+  DeviceOrientationControls,
+} from "locar";
 
 // Replace with your target GPS coordinates
 const TARGET_LAT = 59.836704661579994;
 const TARGET_LON = 13.540565734604412;
 
+
 ////////////////////////////////////////////////////////////////////////////////
-// THREE.JS SETUP
+// SCENE
 ////////////////////////////////////////////////////////////////////////////////
 
 const scene = new THREE.Scene();
@@ -29,40 +34,39 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.style.margin = "0";
+
 document.body.appendChild(renderer.domElement);
 
 ////////////////////////////////////////////////////////////////////////////////
-// LIGHTING
+// LIGHT
 ////////////////////////////////////////////////////////////////////////////////
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 1);
-scene.add(ambientLight);
+const light = new THREE.AmbientLight(0xffffff, 1);
+
+scene.add(light);
 
 ////////////////////////////////////////////////////////////////////////////////
-// CREATE CUBE
+// CUBE
 ////////////////////////////////////////////////////////////////////////////////
 
-const geometry = new THREE.BoxGeometry(2, 2, 2);
-
-const material = new THREE.MeshStandardMaterial({
-  color: 0x00ff00,
-});
-
-const cube = new THREE.Mesh(geometry, material);
+const cube = new THREE.Mesh(
+  new THREE.BoxGeometry(2, 2, 2),
+  new THREE.MeshStandardMaterial({
+    color: 0x00ff00,
+  })
+);
 
 ////////////////////////////////////////////////////////////////////////////////
-// LOCAR.JS SETUP
+// START AR
 ////////////////////////////////////////////////////////////////////////////////
 
-async function initAR() {
-  // Request camera permission
+async function startAR() {
+  // Camera permission
   await navigator.mediaDevices.getUserMedia({
     video: true,
-    audio: false,
   });
 
-  // iPhone orientation permission
+  // iOS orientation permission
   if (
     typeof DeviceOrientationEvent !== "undefined" &&
     typeof DeviceOrientationEvent.requestPermission === "function"
@@ -75,38 +79,63 @@ async function initAR() {
     }
   }
 
-  // Create LocAR instance
-  const locar = new LocAR.LocationBased(scene, camera);
+  // LOCAR
+  const locationBased = new LocationBased(scene, camera);
 
-  // GPS tracking
-  const gps = new LocAR.WebcamRenderer(renderer);
+  // Webcam background
+  new WebcamRenderer(renderer);
 
-  // Start GPS
-  locar.startGps();
+  // Device orientation
+  const controls = new DeviceOrientationControls(camera);
 
-  // Add cube at GPS coordinates
-  locar.add(cube, TARGET_LON, TARGET_LAT);
+  // Add cube to GPS location
+  locationBased.add(cube, TARGET_LON, TARGET_LAT);
 
-  // Move cube slightly upward
   cube.position.y = 1;
 
-  animate();
+  // Start GPS
+  locationBased.startGps();
+
+  // Animation loop
+  renderer.setAnimationLoop(() => {
+    controls.update();
+
+    cube.rotation.y += 0.01;
+
+    renderer.render(scene, camera);
+  });
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// ANIMATION LOOP
+// BUTTON
 ////////////////////////////////////////////////////////////////////////////////
 
-function animate() {
-  requestAnimationFrame(animate);
+const button = document.createElement("button");
 
-  cube.rotation.y += 0.01;
+button.innerText = "Start AR";
 
-  renderer.render(scene, camera);
-}
+button.style.position = "absolute";
+button.style.top = "20px";
+button.style.left = "20px";
+button.style.zIndex = "999";
+button.style.padding = "12px 20px";
+
+document.body.appendChild(button);
+
+button.addEventListener("click", async () => {
+  button.remove();
+
+  try {
+    await startAR();
+  } catch (err) {
+    console.error(err);
+
+    alert(err.message);
+  }
+});
 
 ////////////////////////////////////////////////////////////////////////////////
-// HANDLE RESIZE
+// RESIZE
 ////////////////////////////////////////////////////////////////////////////////
 
 window.addEventListener("resize", () => {
@@ -115,34 +144,6 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
 
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-////////////////////////////////////////////////////////////////////////////////
-// START
-////////////////////////////////////////////////////////////////////////////////
-
-// Button required for iOS permission flow
-const startButton = document.createElement("button");
-
-startButton.innerText = "Start AR";
-
-startButton.style.position = "absolute";
-startButton.style.zIndex = "999";
-startButton.style.top = "20px";
-startButton.style.left = "20px";
-startButton.style.padding = "12px 20px";
-
-document.body.appendChild(startButton);
-
-startButton.addEventListener("click", async () => {
-  startButton.remove();
-
-  try {
-    await initAR();
-  } catch (err) {
-    console.error(err);
-    alert("Failed to start AR");
-  }
 });
 
 
