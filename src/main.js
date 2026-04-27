@@ -10,7 +10,6 @@ import * as LocAR from "locar";
 const TARGET_LAT = 59.836704661579994;
 const TARGET_LON = 13.540565734604412;
 
-
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.001, 100);
 const renderer = new THREE.WebGLRenderer();
@@ -23,9 +22,11 @@ window.addEventListener("resize", e => {
     camera.updateProjectionMatrix();
 });
 const box = new THREE.BoxGeometry(2,2,2);
+
 const cube = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0xff0000 }));
 
 const locar = new LocAR.LocationBased(scene, camera);
+
 const cam = new LocAR.Webcam({
     video: {
         facingMode: "environment"
@@ -40,11 +41,25 @@ cam.on("webcamerror", error => {
     alert(`Webcam error: code ${error.code} message ${error.message}`);
 });
 
-locar.fakeGps(-0.72, 51.05);
-locar.add(cube, -0.72, 51.0501);
+// Create the device orientation tracker
+const deviceOrientationControls = new LocAR.DeviceOrientationControls(camera);
+
+deviceOrientationControls.on("deviceorientationgranted", ev => {
+    ev.target.connect();
+});
+
+deviceOrientationControls.on("deviceorientationerror", error => {
+    alert(`Device orientation error: code ${error.code} message ${error.message}`);
+});
+
+deviceOrientationControls.init();
+locar.startGps();
+locar.add(cube, 13.540565734604412, 59.836704661579994);
 
 renderer.setAnimationLoop(animate);
 
 function animate() {
+    // Update the scene using the latest sensor readings
+    deviceOrientationControls.update();
     renderer.render(scene, camera);
 }
