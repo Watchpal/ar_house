@@ -54,7 +54,7 @@ deviceOrientationControls.on("deviceorientationerror", error => {
 
 deviceOrientationControls.init();
 locar.startGps();
-locar.add(cube, 13.540565734604412, 59.836704661579994);
+locar.add(cube, -0.72, 51.0501);
 
 renderer.setAnimationLoop(animate);
 
