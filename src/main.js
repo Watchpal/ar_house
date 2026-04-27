@@ -6,233 +6,143 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as LocAR from "locar";
 
-// ============================================================
-//  CONFIGURATION — edit these values before deploying
-// ============================================================
-const HOUSE_MODEL_PATH = `${import.meta.env.BASE_URL}House.glb`; 
+// Replace with your target GPS coordinates
+const TARGET_LAT = 59.836704661579994;
+const TARGET_LON = 13.540565734604412;
 
-const HOUSE_GPS = {
-  latitude: 59.8366911802191, // <-- target GPS latitude
-  longitude: 13.540368226155081, // <-- target GPS longitude
-};
-
-const HOUSE_SCALE = 10; // scale of the model (metres, roughly)
-const HOUSE_ALTITUDE = 0; // y-offset in metres (0 = ground level)
-
-// Minimum metres the user must move before GPS position is refreshed.
-// Reduces "jumping" caused by sensor noise.
-const GPS_MIN_DISTANCE = 3;
-
-// ============================================================
-//  SCENE SETUP
-// ============================================================
+////////////////////////////////////////////////////////////////////////////////
+// THREE.JS SETUP
+////////////////////////////////////////////////////////////////////////////////
 
 const scene = new THREE.Scene();
+
 const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  10000,
+  1000
 );
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  alpha: true,
+});
+
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.style.margin = "0";
 document.body.appendChild(renderer.domElement);
 
-// ============================================================
-//  LIGHTING
-// ============================================================
+////////////////////////////////////////////////////////////////////////////////
+// LIGHTING
+////////////////////////////////////////////////////////////////////////////////
 
-// Ambient light so the model isn't pitch-black on its dark side
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+const ambientLight = new THREE.AmbientLight(0xffffff, 1);
 scene.add(ambientLight);
 
-// Directional light simulating sunlight
-const sunLight = new THREE.DirectionalLight(0xfff4e0, 2.0);
-sunLight.position.set(50, 100, 50);
-sunLight.castShadow = true;
-scene.add(sunLight);
+////////////////////////////////////////////////////////////////////////////////
+// CREATE CUBE
+////////////////////////////////////////////////////////////////////////////////
 
-// ============================================================
-//  LOCAR — webcam background + GPS tracking
-// ============================================================
+const geometry = new THREE.BoxGeometry(2, 2, 2);
 
-
-const locar = new LocAR.LocationBased(scene, camera);
-
-const cam = new LocAR.Webcam({
-  video: {
-    facingMode: "environment",
-  },
+const material = new THREE.MeshStandardMaterial({
+  color: 0x00ff00,
 });
 
-cam.on("webcamstarted", (ev) => {
-  scene.background = ev.texture;
-});
+const cube = new THREE.Mesh(geometry, material);
 
-cam.on("webcamerror", (error) => {
-  alert(`Webcam error: code ${error.code} message ${error.message}`);
-});
+////////////////////////////////////////////////////////////////////////////////
+// LOCAR.JS SETUP
+////////////////////////////////////////////////////////////////////////////////
 
-// Create the device orientation tracker
-const deviceOrientationControls = new LocAR.DeviceOrientationControls(camera);
+async function initAR() {
+  // Request camera permission
+  await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: false,
+  });
 
-deviceOrientationControls.on("deviceorientationgranted", ev => {
-    ev.target.connect();
-});
+  // iPhone orientation permission
+  if (
+    typeof DeviceOrientationEvent !== "undefined" &&
+    typeof DeviceOrientationEvent.requestPermission === "function"
+  ) {
+    const permission = await DeviceOrientationEvent.requestPermission();
 
-deviceOrientationControls.on("deviceorientationerror", error => {
-    alert(`Device orientation error: code ${error.code} message ${error.message}`);
-});
-
-deviceOrientationControls.init();
-
-let modelLoaded = false;
-
-// Use native GPS to get a solid first fix before starting LocAR
-navigator.geolocation.getCurrentPosition(
-    (pos) => {
-        // We have a real position — now start LocAR tracking
-        locar.startGps();
-
-        // Load the model immediately since we know GPS is ready
-        if (!modelLoaded) {
-            modelLoaded = true;
-            loadHouseModel();
-        }
-    },
-    (err) => {
-        showError('GPS error: ' + err.message);
-        console.error('[GPS] Error getting initial position:', err);
-    },
-    {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
+    if (permission !== "granted") {
+      alert("Orientation permission denied");
+      return;
     }
-);
-/*
-locar.on('gpsupdate', (pos) => {
-    const { latitude, longitude } = pos.coords;
-    console.log(`[LocAR] GPS update — lat: ${latitude.toFixed(6)}, lon: ${longitude.toFixed(6)}`);
-    updateDebugInfo(latitude, longitude);
+  }
 
-    // Load and place the model only once, after GPS is ready
-    if (!modelLoaded) {
-        modelLoaded = true;
-        loadHouseModel();
-    }
-});
-*/
-locar.on('gpsupdate', (pos, distMoved) => {
-    if (!pos || !pos.coords) return; // guard against null
-    const { latitude, longitude } = pos.coords;
-    updateDebugInfo(latitude, longitude);
-  console.log('[LocAR] raw gpsupdate payload:', pos);
-});
+  // Create LocAR instance
+  const locar = new LocAR.LocationBased(scene, camera);
 
-locar.on('gpserror', (err) => {
-    console.error('[LocAR] GPS error:', err.message);
-    showError('GPS error: ' + err.message);
-});
+  // GPS tracking
+  const gps = new LocAR.WebcamRenderer(renderer);
 
-// ============================================================
-//  LOAD 3D HOUSE MODEL
-// ============================================================
+  // Start GPS
+  locar.startGps();
 
+  // Add cube at GPS coordinates
+  locar.add(cube, TARGET_LON, TARGET_LAT);
 
-// ============================================================
-//  GPS — start tracking the user's position
-// ============================================================
+  // Move cube slightly upward
+  cube.position.y = 1;
 
-locar.startGps();
-
-function loadHouseModel() {
-    const loader = new GLTFLoader();
-
-    loader.load(
-        HOUSE_MODEL_PATH,
-        (gltf) => {
-            const houseObject = gltf.scene;
-            houseObject.scale.setScalar(HOUSE_SCALE);
-            houseObject.position.y = HOUSE_ALTITUDE;
-
-            houseObject.traverse((node) => {
-                if (node.isMesh) {
-                    node.castShadow    = true;
-                    node.receiveShadow = true;
-                }
-            });
-
-            locar.add(houseObject, HOUSE_GPS.longitude, HOUSE_GPS.latitude);
-            console.log('[LocAR] House model placed at', HOUSE_GPS);
-        },
-        (xhr) => {
-            const pct = Math.round((xhr.loaded / xhr.total) * 100);
-            updateLoadingProgress(pct);
-        },
-        (error) => {
-            console.error('[LocAR] Failed to load model:', error);
-            showError('Could not load the house model.');
-        }
-    );
+  animate();
 }
 
-// ============================================================
-//  RENDER LOOP
-// ============================================================
-
-renderer.setAnimationLoop(animate);
+////////////////////////////////////////////////////////////////////////////////
+// ANIMATION LOOP
+////////////////////////////////////////////////////////////////////////////////
 
 function animate() {
-    // Update the scene using the latest sensor readings
-    deviceOrientationControls.update();
-    renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+
+  cube.rotation.y += 0.01;
+
+  renderer.render(scene, camera);
 }
 
-// ============================================================
-//  RESIZE HANDLING
-// ============================================================
+////////////////////////////////////////////////////////////////////////////////
+// HANDLE RESIZE
+////////////////////////////////////////////////////////////////////////////////
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
+
   camera.updateProjectionMatrix();
+
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ============================================================
-//  UI HELPERS
-// ============================================================
+////////////////////////////////////////////////////////////////////////////////
+// START
+////////////////////////////////////////////////////////////////////////////////
 
-function hideLoadingOverlay() {
-  const overlay = document.getElementById("loading-overlay");
-  if (overlay) {
-    overlay.style.opacity = "0";
-    setTimeout(() => overlay.remove(), 600);
+// Button required for iOS permission flow
+const startButton = document.createElement("button");
+
+startButton.innerText = "Start AR";
+
+startButton.style.position = "absolute";
+startButton.style.zIndex = "999";
+startButton.style.top = "20px";
+startButton.style.left = "20px";
+startButton.style.padding = "12px 20px";
+
+document.body.appendChild(startButton);
+
+startButton.addEventListener("click", async () => {
+  startButton.remove();
+
+  try {
+    await initAR();
+  } catch (err) {
+    console.error(err);
+    alert("Failed to start AR");
   }
-}
-
-function updateLoadingProgress(pct) {
-  const bar = document.getElementById("loading-bar-fill");
-  if (bar) bar.style.width = pct + "%";
-
-  const label = document.getElementById("loading-label");
-  if (label) label.textContent = `Loading model… ${pct}%`;
-}
-
-function updateDebugInfo(lat, lon) {
-  const el = document.getElementById("debug-gps");
-  if (el) el.textContent = `GPS  ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-}
-
-function showError(msg) {
-  const el = document.getElementById("error-banner");
-  if (el) {
-    el.textContent = msg;
-    el.style.display = "block";
-  }
-}
+});
 
 
