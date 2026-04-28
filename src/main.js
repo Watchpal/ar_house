@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { LocationBased, DeviceOrientationControls, Webcam } from 'locar';
 
 // ─── Target coordinates ───────────────────────────────────────────────────
-const TARGET_LAT = 59.83667979640434;
-const TARGET_LON = 13.54036195355526;
+const TARGET_LAT = 59.836704661579994;
+const TARGET_LON = 13.540565734604412;
 
 // ─── DOM ──────────────────────────────────────────────────────────────────
 const loadingScreen = document.getElementById('loading-screen');
@@ -12,6 +12,7 @@ const distBadge     = document.getElementById('distance-badge');
 const elLat         = document.getElementById('my-lat');
 const elLon         = document.getElementById('my-lon');
 const elAcc         = document.getElementById('my-acc');
+const elBoxPos      = document.getElementById('box-pos');
 
 function showError(msg) {
   errorMsg.textContent = msg;
@@ -33,60 +34,54 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 // ─── Three.js Setup ───────────────────────────────────────────────────────
 const scene    = new THREE.Scene();
-const camera   = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100000);
+const camera   = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 500000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.autoClear = false;          // needed for webcam + scene layering
+renderer.autoClear = false;
 document.getElementById('app').appendChild(renderer.domElement);
 
 // ─── Lighting ─────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
 sun.position.set(5, 10, 5);
 scene.add(sun);
 
 // ─── Red box ──────────────────────────────────────────────────────────────
+// 20 m cube — large enough to spot from hundreds of metres away
+const BOX_SIZE = 20;
 const box = new THREE.Mesh(
-  new THREE.BoxGeometry(4, 4, 4),
-  new THREE.MeshPhongMaterial({ color: 0xff2020, emissive: 0x550000, shininess: 80 })
+  new THREE.BoxGeometry(BOX_SIZE, BOX_SIZE, BOX_SIZE),
+  new THREE.MeshPhongMaterial({ color: 0xff2020, emissive: 0x660000, shininess: 80 })
 );
 
-// Wireframe overlay for a techy look
-const wireMat  = new THREE.MeshBasicMaterial({ color: 0xff6666, wireframe: true });
-const wireBox  = new THREE.Mesh(new THREE.BoxGeometry(4.05, 4.05, 4.05), wireMat);
+const wireBox = new THREE.Mesh(
+  new THREE.BoxGeometry(BOX_SIZE + 0.1, BOX_SIZE + 0.1, BOX_SIZE + 0.1),
+  new THREE.MeshBasicMaterial({ color: 0xff8888, wireframe: true })
+);
 box.add(wireBox);
 
 // ─── locar: Webcam ────────────────────────────────────────────────────────
-const webcam = new Webcam({ video: { facingMode: 'environment' } });
-
-// Ortho camera to render the webcam background
+const webcam    = new Webcam({ video: { facingMode: 'environment' } });
 const camWebcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
 webcam.on('webcamstarted', ({ texture }) => {
-  // Fullscreen quad with the webcam feed
-  const bgGeo  = new THREE.PlaneGeometry(2, 2);
-  const bgMat  = new THREE.MeshBasicMaterial({ map: texture, depthTest: false, depthWrite: false });
-  const bgMesh = new THREE.Mesh(bgGeo, bgMat);
-  webcam.sceneWebcam.add(bgMesh);
+  const quad = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.MeshBasicMaterial({ map: texture, depthTest: false, depthWrite: false })
+  );
+  webcam.sceneWebcam.add(quad);
 });
 
-webcam.on('webcamerror', (e) => {
-  showError(`Camera error: ${e.message ?? e.code}`);
-});
+webcam.on('webcamerror', (e) => showError(`Camera error: ${e.message ?? e.code}`));
 
 // ─── locar: LocationBased ─────────────────────────────────────────────────
-// gpsMinAccuracy raised to 10000 so cold-start / low-accuracy readings are
-// still accepted — otherwise the world origin never gets set and add() throws.
 const locationBased = new LocationBased(scene, camera, {
   gpsMinDistance: 0,
   gpsMinAccuracy: 10000,
 });
 
-// ⚠️  IMPORTANT: locationBased.add() must only be called AFTER the first GPS
-// fix is received, because internally it calls lonLatToWorldCoords() which
-// requires the world origin to be set. We use a flag to add the box once.
 let boxAdded = false;
 
 locationBased.on('gpsupdate', (pos) => {
@@ -102,13 +97,15 @@ locationBased.on('gpsupdate', (pos) => {
       ? `📦 Red box is ${dist.toFixed(0)} m away`
       : `📦 Red box is ${(dist / 1000).toFixed(1)} km away`;
 
-  // Add the box only once, after the world origin is established
+  // add() requires the world origin to already be set — only safe inside gpsupdate
   if (!boxAdded) {
     boxAdded = true;
-    locationBased.add(box, TARGET_LON, TARGET_LAT, 1.5);
+    locationBased.add(box, TARGET_LON, TARGET_LAT, BOX_SIZE / 2);
+    const p = box.position;
+    if (elBoxPos) elBoxPos.textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
+    console.log('[AR] box world pos:', p);
   }
 
-  // Dismiss loading screen on first GPS fix
   loadingScreen.classList.add('hidden');
 });
 
@@ -117,36 +114,30 @@ locationBased.on('gpserror', (err) => {
   loadingScreen.classList.add('hidden');
 });
 
-// Start GPS
 locationBased.startGps();
 
 // ─── Device Orientation ───────────────────────────────────────────────────
-const orientationControls = new DeviceOrientationControls(camera);
+// FIX: Simply creating DeviceOrientationControls does NOT start listening.
+// You must call init() (which handles iOS permission dialogs) and then call
+// connect() once 'deviceorientationgranted' fires. Only then does update()
+// have any data to work with.
+const orientationControls = new DeviceOrientationControls(camera, {
+  enablePermissionDialog: true,  // locar shows its own iOS tap-to-allow dialog
+  smoothingFactor: 0.5,
+});
 
-// iOS 13+ requires user-gesture permission for DeviceOrientationEvent
-if (typeof DeviceOrientationEvent !== 'undefined' &&
-    typeof DeviceOrientationEvent.requestPermission === 'function') {
-  // Create a tap-to-start overlay for iOS
-  const overlay = document.createElement('div');
-  overlay.style.cssText = `
-    position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;background:rgba(0,0,0,0.7);
-    color:#fff;font-family:'Courier New',monospace;gap:16px;cursor:pointer;
-  `;
-  overlay.innerHTML = `
-    <div style="color:#ff3c3c;font-size:18px;letter-spacing:.2em;text-transform:uppercase">Tap to Start</div>
-    <div style="font-size:12px;color:rgba(255,255,255,.5)">Required for iOS orientation access</div>
-  `;
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', () => {
-    DeviceOrientationEvent.requestPermission().then(state => {
-      if (state === 'granted') {
-        orientationControls.connect?.();
-      }
-      overlay.remove();
-    }).catch(() => overlay.remove());
-  });
-}
+orientationControls.on('deviceorientationgranted', () => {
+  orientationControls.connect();
+  console.log('[AR] DeviceOrientation connected ✓');
+});
+
+orientationControls.on('deviceorientationerror', (e) => {
+  console.warn('[AR] DeviceOrientation unavailable:', e.message);
+  // Not fatal — scene still renders, user just can't pan by rotating the phone
+});
+
+// Start the permission flow (instant on Android/desktop, shows dialog on iOS)
+orientationControls.init();
 
 // ─── Resize ───────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
@@ -161,18 +152,16 @@ let rotY = 0;
 function animate() {
   requestAnimationFrame(animate);
 
-  // Gentle spin on the box
-  rotY += 0.008;
+  rotY += 0.006;
   box.rotation.y = rotY;
 
-  // Update orientation
   orientationControls.update();
 
-  // 1. Render webcam background (no depth)
+  // Pass 1: webcam background (no depth test / no depth write)
   renderer.clear();
   renderer.render(webcam.sceneWebcam, camWebcam);
 
-  // 2. Render the AR scene on top
+  // Pass 2: AR scene on top
   renderer.clearDepth();
   renderer.render(scene, camera);
 }
