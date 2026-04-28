@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { LocationBased, DeviceOrientationControls, Webcam } from 'locar';
 
 // ─── Target coordinates ───────────────────────────────────────────────────
-const TARGET_LAT = 59.836704661579994;
-const TARGET_LON = 13.540565734604412;
+const TARGET_LAT = 59.83666135300356;
+const TARGET_LON = 13.540471225509355;
 
 // ─── DOM ──────────────────────────────────────────────────────────────────
 const loadingScreen = document.getElementById('loading-screen');
