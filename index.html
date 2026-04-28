@@ -2,32 +2,153 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0"
-    />
-<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <title>GPS AR House</title>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <title>AR Location Box</title>
     <style>
-      html,
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
       body {
-        margin: 0;
-        padding: 0;
+        background: #000;
         overflow: hidden;
-        width: 100%;
-        height: 100%;
-        background: black;
+        font-family: 'Courier New', monospace;
       }
 
-      canvas {
-        display: block;
+      #app { width: 100vw; height: 100vh; position: relative; }
+
+      canvas { display: block; }
+
+      /* HUD */
+      #hud {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      #status-panel {
+        position: absolute;
+        top: 20px; left: 20px;
+        background: rgba(0,0,0,0.65);
+        border: 1px solid rgba(255,60,60,0.5);
+        border-radius: 8px;
+        padding: 14px 18px;
+        color: #fff;
+        font-size: 12px;
+        line-height: 1.8;
+        min-width: 220px;
+        backdrop-filter: blur(6px);
+      }
+
+      #status-panel h3 {
+        color: #ff3c3c;
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+        border-bottom: 1px solid rgba(255,60,60,0.3);
+        padding-bottom: 6px;
+      }
+
+      .stat-row { display: flex; justify-content: space-between; gap: 12px; }
+      .stat-label { color: rgba(255,255,255,0.5); }
+      .stat-value { color: #fff; font-weight: bold; }
+
+      #distance-badge {
+        position: absolute;
+        bottom: 40px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,60,60,0.15);
+        border: 1px solid rgba(255,60,60,0.6);
+        border-radius: 50px;
+        padding: 10px 24px;
+        color: #ff3c3c;
+        font-size: 14px;
+        letter-spacing: 0.08em;
+        text-align: center;
+        backdrop-filter: blur(8px);
+        white-space: nowrap;
+      }
+
+      /* Loading screen */
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        background: #0a0a0a;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        gap: 20px;
+        transition: opacity 0.6s ease;
+      }
+
+      #loading-screen.hidden { opacity: 0; pointer-events: none; }
+
+      .loader-title { color: #ff3c3c; font-size: 22px; letter-spacing: 0.2em; text-transform: uppercase; }
+      .loader-sub { color: rgba(255,255,255,0.4); font-size: 12px; letter-spacing: 0.15em; }
+
+      .loader-bar-wrap {
+        width: 200px; height: 2px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 2px; overflow: hidden;
+      }
+      .loader-bar {
+        height: 100%; background: #ff3c3c;
+        animation: pbar 1.4s ease-in-out infinite;
+        border-radius: 2px;
+      }
+      @keyframes pbar {
+        0%   { width: 0%; }
+        50%  { width: 70%; }
+        100% { width: 100%; }
+      }
+
+      #error-msg {
+        color: #ff6b6b; font-size: 12px;
+        text-align: center; max-width: 280px;
+        line-height: 1.6; display: none;
       }
     </style>
   </head>
-
   <body>
+    <div id="loading-screen">
+      <div class="loader-title">AR Location</div>
+      <div class="loader-sub">Requesting camera &amp; GPS…</div>
+      <div class="loader-bar-wrap"><div class="loader-bar"></div></div>
+      <div id="error-msg"></div>
+    </div>
+
+    <div id="app"></div>
+
+    <div id="hud">
+      <div id="status-panel">
+        <h3>📍 AR Target</h3>
+        <div class="stat-row">
+          <span class="stat-label">My Lat</span>
+          <span class="stat-value" id="my-lat">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">My Lon</span>
+          <span class="stat-value" id="my-lon">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Accuracy</span>
+          <span class="stat-value" id="my-acc">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Target Lat</span>
+          <span class="stat-value">59.8367</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Target Lon</span>
+          <span class="stat-value">13.5406</span>
+        </div>
+      </div>
+      <div id="distance-badge">📦 Searching for target…</div>
+    </div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
   <script>eruda.init();</script>
