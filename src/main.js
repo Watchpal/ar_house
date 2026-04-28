@@ -77,12 +77,18 @@ webcam.on('webcamerror', (e) => {
 });
 
 // ─── locar: LocationBased ─────────────────────────────────────────────────
-const locationBased = new LocationBased(scene, camera, { gpsMinAccuracy: 100 });
+// gpsMinAccuracy raised to 10000 so cold-start / low-accuracy readings are
+// still accepted — otherwise the world origin never gets set and add() throws.
+const locationBased = new LocationBased(scene, camera, {
+  gpsMinDistance: 0,
+  gpsMinAccuracy: 10000,
+});
 
-// Place the red box at the target GPS coords, 1.5 m above ground
-locationBased.add(box, TARGET_LON, TARGET_LAT, 1.5);
+// ⚠️  IMPORTANT: locationBased.add() must only be called AFTER the first GPS
+// fix is received, because internally it calls lonLatToWorldCoords() which
+// requires the world origin to be set. We use a flag to add the box once.
+let boxAdded = false;
 
-// Handle GPS events from locationBased
 locationBased.on('gpsupdate', (pos) => {
   const { latitude, longitude, accuracy } = pos.position.coords;
 
@@ -96,13 +102,18 @@ locationBased.on('gpsupdate', (pos) => {
       ? `📦 Red box is ${dist.toFixed(0)} m away`
       : `📦 Red box is ${(dist / 1000).toFixed(1)} km away`;
 
+  // Add the box only once, after the world origin is established
+  if (!boxAdded) {
+    boxAdded = true;
+    locationBased.add(box, TARGET_LON, TARGET_LAT, 1.5);
+  }
+
   // Dismiss loading screen on first GPS fix
   loadingScreen.classList.add('hidden');
 });
 
 locationBased.on('gpserror', (err) => {
   showError(`GPS error (${err.code}): ${err.message}`);
-  // Still dismiss loader so user sees the scene
   loadingScreen.classList.add('hidden');
 });
 
