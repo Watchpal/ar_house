@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { LocationBased, DeviceOrientationControls, Webcam } from 'locar';
+import { Webcam } from 'locar';
 
-// ─── Target coordinates ───────────────────────────────────────────────────
+// ─── Target GPS coordinates ───────────────────────────────────────────────
 const TARGET_LAT = 59.83666054587699;
 const TARGET_LON = 13.540475354526265;
 
@@ -12,9 +12,7 @@ const distBadge     = document.getElementById('distance-badge');
 const elLat         = document.getElementById('my-lat');
 const elLon         = document.getElementById('my-lon');
 const elAcc         = document.getElementById('my-acc');
-const elBoxPos      = document.getElementById('box-pos');
-const compass       = document.getElementById('compass-arrow');
-const compassDot    = document.getElementById('compass-dot');
+const elBearing     = document.getElementById('box-pos'); // reused for bearing
 
 function showError(msg) {
   errorMsg.textContent = msg;
@@ -22,7 +20,7 @@ function showError(msg) {
   console.error('[AR]', msg);
 }
 
-// ─── Bearing + Haversine ──────────────────────────────────────────────────
+// ─── Geo helpers ──────────────────────────────────────────────────────────
 function haversine(lat1, lon1, lat2, lon2) {
   const R    = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -34,8 +32,8 @@ function haversine(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-// Returns degrees clockwise from North to the target
-function bearing(lat1, lon1, lat2, lon2) {
+// Bearing FROM user TO target, in degrees clockwise from North
+function bearingTo(lat1, lon1, lat2, lon2) {
   const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
   const Δλ = (lon2 - lon1) * Math.PI / 180;
   const y  = Math.sin(Δλ) * Math.cos(φ2);
@@ -43,34 +41,63 @@ function bearing(lat1, lon1, lat2, lon2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-// ─── Three.js Setup ───────────────────────────────────────────────────────
+// ─── Three.js ─────────────────────────────────────────────────────────────
 const scene    = new THREE.Scene();
-const camera   = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 500000);
+const camera   = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.autoClear = false;
+renderer.shadowMap.enabled = true;
 document.getElementById('app').appendChild(renderer.domElement);
 
 // ─── Lighting ─────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-sun.position.set(5, 10, 5);
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.position.set(80, 120, 60);
+sun.castShadow = true;
 scene.add(sun);
 
-// ─── Red box ──────────────────────────────────────────────────────────────
-const BOX_SIZE = 20;
+// Subtle fill light from below to avoid pure-black undersides
+const fill = new THREE.DirectionalLight(0x4466ff, 0.3);
+fill.position.set(-40, -60, -40);
+scene.add(fill);
+
+// ─── Red cube at scene origin ─────────────────────────────────────────────
+// The cube stays at (0,0,0). The camera orbits around it.
+const BOX_SIZE = 1;
+
 const box = new THREE.Mesh(
   new THREE.BoxGeometry(BOX_SIZE, BOX_SIZE, BOX_SIZE),
-  new THREE.MeshPhongMaterial({ color: 0xff2020, emissive: 0x660000, shininess: 80 })
+  new THREE.MeshPhongMaterial({
+    color:     0xff2020,
+    emissive:  0x550000,
+    shininess: 90,
+    specular:  0xff6666,
+  })
 );
+box.castShadow = true;
+scene.add(box);
+
+// Wireframe overlay
 box.add(new THREE.Mesh(
-  new THREE.BoxGeometry(BOX_SIZE + 0.1, BOX_SIZE + 0.1, BOX_SIZE + 0.1),
-  new THREE.MeshBasicMaterial({ color: 0xff8888, wireframe: true })
+  new THREE.BoxGeometry(BOX_SIZE * 1.005, BOX_SIZE * 1.005, BOX_SIZE * 1.005),
+  new THREE.MeshBasicMaterial({ color: 0xff7777, wireframe: true, transparent: true, opacity: 0.6 })
 ));
 
-// ─── locar: Webcam ────────────────────────────────────────────────────────
+// Ground shadow plane
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(10, 10),
+  new THREE.ShadowMaterial({ opacity: 0.25 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -BOX_SIZE / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ─── Webcam background ────────────────────────────────────────────────────
 const webcam    = new Webcam({ video: { facingMode: 'environment' } });
 const camWebcam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
@@ -79,117 +106,144 @@ webcam.on('webcamstarted', ({ texture }) => {
     new THREE.PlaneGeometry(2, 2),
     new THREE.MeshBasicMaterial({ map: texture, depthTest: false, depthWrite: false })
   ));
+  console.log('[AR] Webcam started ✓');
 });
 webcam.on('webcamerror', (e) => showError(`Camera error: ${e.message ?? e.code}`));
 
-// ─── locar: LocationBased ─────────────────────────────────────────────────
-// KEY FIX: gpsMinDistance: 3 means the camera only repositions in world space
-// when the user physically walks > 3 metres. Without this (gpsMinDistance: 0),
-// every GPS poll — including ±10–30 m noise while standing still — teleports
-// the camera, so the box jumps in and out of the frustum every few seconds.
-const locationBased = new LocationBased(scene, camera, {
-  gpsMinDistance: 3,      // ← prevents GPS jitter from moving the camera
-  gpsMinAccuracy: 10000,
-});
+// ─── Camera orbit state ───────────────────────────────────────────────────
+// The camera sits on a sphere of radius ORBIT_RADIUS centred on the cube.
+// azimuth  = horizontal angle (driven by GPS bearing)
+// elevation = vertical angle (driven by device tilt / DeviceOrientation beta)
+const ORBIT_RADIUS = BOX_SIZE * 2.8; // close enough to fill ~40% of screen
 
-let boxAdded        = false;
-let userLat         = null;
-let userLon         = null;
+let azimuth   = 0;   // radians, clockwise from +Z axis
+let elevation = 0.3; // radians above the horizon (default: slightly above)
 
-locationBased.on('gpsupdate', (pos) => {
-  const { latitude, longitude, accuracy } = pos.position.coords;
-  userLat = latitude;
-  userLon = longitude;
+// Smooth targets — we lerp toward these each frame
+let targetAzimuth   = azimuth;
+let targetElevation = elevation;
+
+function setCameraOrbit() {
+  // Spherical → Cartesian
+  camera.position.set(
+    ORBIT_RADIUS * Math.sin(azimuth)   * Math.cos(elevation),
+    ORBIT_RADIUS * Math.sin(elevation),
+    ORBIT_RADIUS * Math.cos(azimuth)   * Math.cos(elevation)
+  );
+  camera.lookAt(0, 0, 0);
+}
+
+setCameraOrbit();
+
+// ─── GPS ──────────────────────────────────────────────────────────────────
+// We use GPS ONLY for two things:
+//   1. Calculate the bearing from user → target → set camera azimuth
+//   2. Show the distance in the HUD
+// We do NOT use LocationBased because we don't need world-space placement.
+
+let gpsReady = false;
+
+function onGPSPosition(pos) {
+  const { latitude, longitude, accuracy } = pos.coords;
 
   elLat.textContent = latitude.toFixed(5);
   elLon.textContent = longitude.toFixed(5);
   elAcc.textContent = `±${accuracy.toFixed(0)} m`;
 
-  const dist = haversine(latitude, longitude, TARGET_LAT, TARGET_LON);
-  distBadge.textContent =
-    dist < 5000
-      ? `📦 Red box is ${dist.toFixed(0)} m away`
-      : `📦 Red box is ${(dist / 1000).toFixed(1)} km away`;
+  const dist  = haversine(latitude, longitude, TARGET_LAT, TARGET_LON);
+  const brng  = bearingTo(latitude, longitude, TARGET_LAT, TARGET_LON);
 
-  if (!boxAdded) {
-    boxAdded = true;
-    // Place the box floor-level (y=0); BOX_SIZE/2 lifts it so the base sits at y=0
-    locationBased.add(box, TARGET_LON, TARGET_LAT, BOX_SIZE / 2);
-    const p = box.position;
-    if (elBoxPos) elBoxPos.textContent = `${p.x.toFixed(0)}, ${p.y.toFixed(0)}, ${p.z.toFixed(0)} m`;
-    console.log('[AR] box world pos:', p.x.toFixed(1), p.y.toFixed(1), p.z.toFixed(1));
+  distBadge.textContent = dist < 5000
+    ? `📦 Red box is ${dist.toFixed(0)} m away`
+    : `📦 Red box is ${(dist / 1000).toFixed(1)} km away`;
+
+  if (elBearing) elBearing.textContent = `${brng.toFixed(0)}°`;
+
+  // Convert bearing (CW from North) → Three.js azimuth
+  // Camera sits on the OPPOSITE side so it looks FROM the user TOWARD the box
+  // bearing 0° (N) → user is north of box → camera at +Z (south) → azimuth = π
+  // bearing 90° (E) → user is east → camera at +X → azimuth = π/2
+  targetAzimuth = (brng * Math.PI / 180) + Math.PI;
+
+  if (!gpsReady) {
+    gpsReady = true;
+    azimuth  = targetAzimuth; // snap on first fix, then lerp after
+    loadingScreen.classList.add('hidden');
+    console.log(`[AR] GPS ready. Bearing to target: ${brng.toFixed(1)}°`);
   }
+}
 
-  loadingScreen.classList.add('hidden');
-});
-
-locationBased.on('gpserror', (err) => {
+function onGPSError(err) {
   showError(`GPS error (${err.code}): ${err.message}`);
   loadingScreen.classList.add('hidden');
-});
-
-locationBased.startGps();
-
-// ─── Device Orientation ───────────────────────────────────────────────────
-const orientationControls = new DeviceOrientationControls(camera, {
-  enablePermissionDialog: true,
-  smoothingFactor: 0.5,
-});
-
-orientationControls.on('deviceorientationgranted', () => {
-  orientationControls.connect();
-  console.log('[AR] DeviceOrientation connected ✓');
-});
-orientationControls.on('deviceorientationerror', (e) => {
-  console.warn('[AR] DeviceOrientation:', e.message);
-});
-
-orientationControls.init();
-
-// ─── Compass Arrow (always points toward the box) ─────────────────────────
-// Uses the box's 3-D world position projected into screen space.
-// If the box is off-screen we show the arrow at the screen edge; if it's
-// on-screen we move it right on top of the box and hide the outer ring.
-const _ndcVec = new THREE.Vector3();
-
-function updateCompass() {
-  if (!boxAdded || !compass) return;
-
-  // Project box centre into normalised device coordinates (-1…1)
-  _ndcVec.copy(box.position);
-  _ndcVec.project(camera);
-
-  const onScreen = Math.abs(_ndcVec.x) <= 1 && Math.abs(_ndcVec.y) <= 1 && _ndcVec.z < 1;
-
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const MARGIN = 48;
-
-  let sx, sy;
-
-  if (onScreen) {
-    // Convert NDC → CSS pixels
-    sx = ( _ndcVec.x * 0.5 + 0.5) * W;
-    sy = (-_ndcVec.y * 0.5 + 0.5) * H;
-    compass.style.opacity = '0.4';
-    if (compassDot) compassDot.style.display = 'block';
-  } else {
-    // Clamp to screen edge
-    sx = Math.max(MARGIN, Math.min(W - MARGIN,  (_ndcVec.x * 0.5 + 0.5) * W));
-    sy = Math.max(MARGIN, Math.min(H - MARGIN, (-_ndcVec.y * 0.5 + 0.5) * H));
-    compass.style.opacity = '1';
-    if (compassDot) compassDot.style.display = 'none';
-  }
-
-  // Angle of the arrow: from screen centre → clamped projection point
-  const cx = W / 2, cy = H / 2;
-  const angle = Math.atan2(sy - cy, sx - cx) * 180 / Math.PI + 90;
-
-  compass.style.left      = `${sx}px`;
-  compass.style.top       = `${sy}px`;
-  compass.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
-  compass.style.display   = 'flex';
 }
+
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(onGPSPosition, onGPSError, {
+    enableHighAccuracy: true,
+    maximumAge: 3000,
+    timeout: 15000,
+  });
+} else {
+  showError('Geolocation not supported by this browser.');
+}
+
+// ─── Device Orientation → elevation ──────────────────────────────────────
+// We only use `beta` (front-to-back tilt, 0° = flat, 90° = upright) to set
+// the camera elevation. This gives the "look up / look down" effect when you
+// tilt your phone, without needing the full orientation quaternion.
+//
+// Portrait phone held upright: beta ≈ 90°
+// Phone tilted back 30°: beta ≈ 60°  → we want elevation ≈ +30° above horizon
+// Phone tilted forward:   beta > 90° → elevation goes negative (look down at cube)
+
+let lastBeta = null;
+
+function onDeviceOrientation(e) {
+  if (e.beta === null) return;
+
+  // beta in [−180, 180], but practically [0, 180] when held upright in portrait
+  // Map so that:
+  //   beta = 90  → elevation = 0   (horizontal, looking straight at cube)
+  //   beta = 60  → elevation = 30° (tilted back, looking slightly up)
+  //   beta = 120 → elevation = -30° (tilted forward, looking slightly down)
+  const beta = e.beta;
+  const raw  = (90 - beta) * Math.PI / 180; // radians
+  targetElevation = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, raw));
+  lastBeta = beta;
+}
+
+// Request iOS 13+ permission
+function setupOrientation() {
+  if (
+    typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceOrientationEvent.requestPermission === 'function'
+  ) {
+    // Need a user gesture — show a tap overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;background:rgba(0,0,0,0.75);
+      color:#fff;font-family:'Courier New',monospace;gap:16px;cursor:pointer;
+    `;
+    overlay.innerHTML = `
+      <div style="color:#ff3c3c;font-size:18px;letter-spacing:.2em;text-transform:uppercase">Tap to Enable Tilt</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.5)">Required for iOS orientation access</div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', () => {
+      DeviceOrientationEvent.requestPermission()
+        .then(state => {
+          if (state === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation);
+          overlay.remove();
+        })
+        .catch(() => overlay.remove());
+    });
+  } else {
+    window.addEventListener('deviceorientation', onDeviceOrientation);
+  }
+}
+setupOrientation();
 
 // ─── Resize ───────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
@@ -198,20 +252,29 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ─── Render Loop ──────────────────────────────────────────────────────────
-let rotY = 0;
+// ─── Render loop ──────────────────────────────────────────────────────────
+const LERP = 0.06; // smoothing factor — lower = smoother but slower to react
 
 function animate() {
   requestAnimationFrame(animate);
 
-  rotY += 0.006;
-  box.rotation.y = rotY;
+  // Smooth azimuth (handle wrap-around at ±π)
+  let da = targetAzimuth - azimuth;
+  // Keep delta in [-π, π] so we always take the shorter arc
+  while (da >  Math.PI) da -= 2 * Math.PI;
+  while (da < -Math.PI) da += 2 * Math.PI;
+  azimuth   += da * LERP;
 
-  orientationControls.update();
-  updateCompass();
+  // Smooth elevation
+  elevation += (targetElevation - elevation) * LERP;
 
+  setCameraOrbit();
+
+  // Webcam background
   renderer.clear();
   renderer.render(webcam.sceneWebcam, camWebcam);
+
+  // 3-D scene
   renderer.clearDepth();
   renderer.render(scene, camera);
 }
